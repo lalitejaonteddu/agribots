@@ -1,24 +1,26 @@
-# Logs
-logs
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+*.csv
+
+# Web
+node_modules/
+dist/
+web/node_modules/
+web/dist/
+
+# Local artifacts & training runs
+captures/
+eval_out/
+training/runs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+*.cache
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+
+# PlatformIO & IDE
+.pio/
+.vscode/
+.idea/

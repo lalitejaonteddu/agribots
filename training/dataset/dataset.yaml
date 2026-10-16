@@ -1,0 +1,11 @@
+# Crop-Sim Pest Dataset Partition
+path: /Users/laliteja/Downloads/agribots 2/training/dataset
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: fall_armyworm_moth
+  1: spodoptera_litura_moth
+  2: spodoptera_exigua_moth
+  3: locust

@@ -1,0 +1,4 @@
+fall_armyworm_moth
+spodoptera_litura_moth
+spodoptera_exigua_moth
+locust
