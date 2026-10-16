@@ -52,14 +52,20 @@ def parse_args():
     p.add_argument("--yolo-model", default=str(REPO_DIR / "models" / "yolov8n_insect.onnx"), help="Path to ONNX YOLO model")
     p.add_argument("--conf", type=float, default=None, help="YOLO confidence threshold (0-1). If provided, overrides all per-class thresholds.")
     p.add_argument("--class-confs", default=None, help="Path to JSON file with per-class thresholds")
-    p.add_argument("--max-box-frac", type=float, default=0.015, help="Max box area fraction of frame (default 0.015)")
+    p.add_argument("--max-box-frac", type=float, default=0.04, help="Max box area fraction of frame (default 0.04)")
     p.add_argument("--min-box-side", type=int, default=6, help="Min shorter side of box in pixels (default 6)")
+    p.add_argument("--phone-test", action="store_true",
+                   help="Testing with insect photos on a phone held up to camera (= --allow-screens --max-box-frac 0.45)")
+    p.add_argument("--allow-screens", action="store_true",
+                   help="Testing: allow insects shown on a phone/laptop screen (not vetoed by object gate)")
+    p.add_argument("--no-filters", action="store_true",
+                   help="Disable false-alarm filters (raw YOLO detections)")
     p.add_argument("--coco-model", default=str(REPO_DIR / "models" / "coco_yolov8n.onnx"), help="Path to COCO YOLO model for person/object gating")
     p.add_argument("--roi-setup", action="store_true", help="Interactive tool to click 4 crop bed corners and save to host/roi.json")
     p.add_argument("--roi-file", default=str(HOST_DIR / "roi.json"), help="Path to ROI JSON polygon file")
-    p.add_argument("--yolo-window", type=int, default=6, help="Temporal window M for YOLO tracks (default 6)")
-    p.add_argument("--yolo-min-hits", type=int, default=4, help="Minimum detections N in last M frames (default 4)")
-    p.add_argument("--yolo-min-conf", type=float, default=0.50, help="Minimum mean confidence required for YOLO track confirmation")
+    p.add_argument("--yolo-window", type=int, default=5, help="Temporal window M for YOLO tracks (default 5)")
+    p.add_argument("--yolo-min-hits", type=int, default=2, help="Minimum detections N in last M frames (default 2)")
+    p.add_argument("--yolo-min-conf", type=float, default=None, help="Minimum mean confidence required for YOLO track confirmation (default: uses class threshold)")
     p.add_argument("--debug", action="store_true", help="Draw COCO suppressor boxes in grey, ROI outline in cyan, and show filter stats")
     p.add_argument("--width", type=int, default=640, help="Processing frame width")
     p.add_argument("--freq", type=int, default=40000, help="Initial transducer frequency (Hz)")
@@ -80,6 +86,13 @@ def parse_args():
 
 def resolve_detector(args):
     """Pick the detector mode and build its config."""
+    if getattr(args, "phone_test", False):
+        args.allow_screens = True
+        args.max_box_frac = max(args.max_box_frac, 0.45)
+        args.yolo_min_hits = min(getattr(args, "yolo_min_hits", 2), 2)
+        args.yolo_min_conf = None
+        print("[Testing Mode] --phone-test active: screen veto disabled, max box relaxed to 45% of frame")
+
     mode = args.detector
     if mode == "auto":
         mode = "yolo" if Path(args.yolo_model).exists() else "hybrid"
@@ -109,10 +122,12 @@ def resolve_detector(args):
         onnx_model_path=args.yolo_model if mode == "yolo" else "",
         yolo_conf_thresh=args.conf if args.conf is not None else 0.55,
         per_class_conf=per_class,
+        use_filters=not args.no_filters,
+        allow_screens=args.allow_screens,
         max_box_frac=args.max_box_frac,
         min_box_side=args.min_box_side,
-        coco_model_path=args.coco_model,
-        roi_path=args.roi_file,
+        coco_model_path=args.coco_model if (not args.no_filters) else "",
+        roi_path=args.roi_file if (not args.no_filters) else "",
         yolo_history_window_m=args.yolo_window,
         yolo_min_hits_n=args.yolo_min_hits,
         yolo_min_mean_conf=args.yolo_min_conf,

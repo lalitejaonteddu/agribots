@@ -34,6 +34,7 @@ COCO_SUPPRESS_CLASSES: Set[int] = {
     62, 63, 64, 65, 66, 67, # tv, laptop, mouse, remote, keyboard, cell phone
     73, 74, 75, 76,      # book, clock, vase, scissors
 }
+COCO_SCREEN_CLASSES: Set[int] = {62, 63, 64, 65, 66, 67}  # tv, laptop, mouse, remote, keyboard, cell phone
 
 
 @dataclass
@@ -103,7 +104,9 @@ class DetectorConfig:
     )
 
     # Runtime Sanity Filters (Part A)
-    max_box_frac: float = 0.015  # Reject boxes > 1.5% of total frame area (insects are << 1%)
+    use_filters: bool = True     # If False, raw YOLO output is passed directly
+    allow_screens: bool = False  # If True, allows insects displayed on phone/laptop screens for testing
+    max_box_frac: float = 0.04   # Max box area as fraction of frame (default 4%, relaxed for testing)
     min_box_side: int = 6        # Reject boxes with shorter side < 6 px
     
     # Person / Object Gate (COCO YOLOv8n)
@@ -116,10 +119,10 @@ class DetectorConfig:
     roi_path: str = "host/roi.json"
     roi_polygon: Optional[List[Tuple[int, int]]] = None
 
-    # Stronger Temporal Rule for YOLO
-    yolo_history_window_m: int = 6  # Look back across 6 frames
-    yolo_min_hits_n: int = 4        # Require at least 4 detections
-    yolo_min_mean_conf: float = 0.50 # Mean confidence threshold across hit frames
+    # Temporal Rule for YOLO
+    yolo_history_window_m: int = 5  # Look back across 5 frames
+    yolo_min_hits_n: int = 2        # Require 2 detections in 5 frames
+    yolo_min_mean_conf: Optional[float] = None # None = keep all valid detections that met class thresholds
 
     # Diagnostics & Debug
     measure_timing: bool = True
@@ -693,38 +696,42 @@ class InsectDetector:
 
         filtered_dets = []
         for box, conf, cls_id in dets:
-            # 1. Box-size & aspect-ratio sanity filter
-            if not box_passes_sanity(
-                box,
-                orig_shape,
-                max_box_frac=self.config.max_box_frac,
-                min_box_side=self.config.min_box_side,
-                max_aspect_ratio=self.config.max_aspect_ratio,
-            ):
-                continue
-
-            # 2. ROI polygon filter
-            if not box_center_in_roi(box, self.config.roi_polygon):
-                continue
-
-            # 3. Person / Object gate: drop insect box if it overlaps any COCO suppressor box
-            if self.last_coco_boxes:
-                bx, by, bw, bh = box
-                bcx, bcy = bx + bw / 2.0, by + bh / 2.0
-                suppressed = False
-                for c_box, c_conf, c_cls in self.last_coco_boxes:
-                    if c_cls in COCO_SUPPRESS_CLASSES:
-                        c_x, c_y, c_w, c_h = c_box
-                        # Center inside COCO box
-                        if (c_x <= bcx <= c_x + c_w) and (c_y <= bcy <= c_y + c_h):
-                            suppressed = True
-                            break
-                        # Overlap IoU > 0.1
-                        if compute_iou(box, c_box) > 0.10:
-                            suppressed = True
-                            break
-                if suppressed:
+            if self.config.use_filters:
+                # 1. Box-size & aspect-ratio sanity filter
+                if not box_passes_sanity(
+                    box,
+                    orig_shape,
+                    max_box_frac=self.config.max_box_frac,
+                    min_box_side=self.config.min_box_side,
+                    max_aspect_ratio=self.config.max_aspect_ratio,
+                ):
                     continue
+
+                # 2. ROI polygon filter
+                if not box_center_in_roi(box, self.config.roi_polygon):
+                    continue
+
+                # 3. Person / Object gate: drop insect box if it overlaps any COCO suppressor box
+                if self.last_coco_boxes:
+                    bx, by, bw, bh = box
+                    bcx, bcy = bx + bw / 2.0, by + bh / 2.0
+                    suppressed = False
+                    for c_box, c_conf, c_cls in self.last_coco_boxes:
+                        # When allow_screens is enabled, do not veto boxes on phone/laptop screens or holding hands/person
+                        if self.config.allow_screens and (c_cls in COCO_SCREEN_CLASSES or c_cls == 0):
+                            continue
+                        if c_cls in COCO_SUPPRESS_CLASSES:
+                            c_x, c_y, c_w, c_h = c_box
+                            # Center inside COCO box
+                            if (c_x <= bcx <= c_x + c_w) and (c_y <= bcy <= c_y + c_h):
+                                suppressed = True
+                                break
+                            # Overlap IoU > 0.1
+                            if compute_iou(box, c_box) > 0.10:
+                                suppressed = True
+                                break
+                    if suppressed:
+                        continue
 
             filtered_dets.append((box, conf, cls_id))
 
